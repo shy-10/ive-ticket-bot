@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import random
 from datetime import datetime
 
 import requests
@@ -13,7 +14,7 @@ from playwright.sync_api import sync_playwright
 
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 
-CHECK_INTERVAL = 10  # 每幾秒檢查一次
+CHECK_INTERVAL = 3  # 每幾秒檢查一次
 MENTION_EVERYONE = True  # 有票時是否 @everyone
 
 TARGETS = [
@@ -234,7 +235,7 @@ def main():
                             print(f"[略過] {target['title']} / {target['date_text']} 仍然有票，但已通知過")
 
                     print(f"等待 {CHECK_INTERVAL} 秒後再次檢查...\n")
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(random.uniform(2, 4))
 
                 except Exception as e:
                     print("發生錯誤：", e)
