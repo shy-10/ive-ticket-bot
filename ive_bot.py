@@ -7,6 +7,7 @@ from datetime import datetime
 import requests
 from playwright.sync_api import sync_playwright
 
+notified = {}
 
 # =========================
 # 1. 基本設定
@@ -205,6 +206,7 @@ def main():
 
     for target in TARGETS:
         notified[target["url"]] = False
+        
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
