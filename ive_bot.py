@@ -9,14 +9,11 @@ from playwright.sync_api import sync_playwright
 
 notified = {}
 
-# =========================
-# 1. 基本設定
-# =========================
-
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 
-CHECK_INTERVAL = 3  # 每幾秒檢查一次
-MENTION_EVERYONE = True  # 有票時是否 @everyone
+MIN_INTERVAL = 2
+MAX_INTERVAL = 4
+MENTION_EVERYONE = True
 
 TARGETS = [
     {
@@ -33,45 +30,29 @@ TARGETS = [
     },
 ]
 
-# 若只想看特定票價 / 關鍵字，可填：
-# 例如：["VIP", "7800", "5800"]
-# 全部都看就留空 []
 KEYWORDS = []
 
-# 記錄每個網址是否已通知過
-notified = {}
-
-
-# =========================
-# 2. Discord 發送
-# =========================
 
 def send_discord(message: str, mention_everyone: bool = False):
-    try:
-        content = message
-        if mention_everyone:
-            content = "@everyone\n" + message
+    content = message
+    if mention_everyone:
+        content = "@everyone\n" + message
 
-        payload = {
-            "content": content,
-            "allowed_mentions": {
-                "parse": ["everyone"]
-            }
+    payload = {
+        "content": content,
+        "allowed_mentions": {
+            "parse": ["everyone"]
         }
+    }
 
-        response = requests.post(
-            WEBHOOK_URL,
-            json=payload,
-            timeout=10
-        )
-        print("Discord 狀態碼：", response.status_code)
-    except Exception as e:
-        print("Discord 發送失敗：", e)
+    response = requests.post(
+        WEBHOOK_URL,
+        json=payload,
+        timeout=10
+    )
+    response.raise_for_status()
+    print("Discord 狀態碼：", response.status_code)
 
-
-# =========================
-# 3. 工具函式
-# =========================
 
 def normalize_line(line: str) -> str:
     return re.sub(r"\s+", " ", line).strip()
@@ -96,10 +77,6 @@ def dedupe_items(items: list[dict]) -> list[dict]:
     return result
 
 
-# =========================
-# 4. HTML 結構版：檢查單一頁面
-# =========================
-
 def check_page(page, target: dict) -> list[dict]:
     print(f"檢查中：{target['title']} / {target['date_text']}")
 
@@ -108,7 +85,6 @@ def check_page(page, target: dict) -> list[dict]:
 
     items = []
 
-    # 拓元票區清單
     zones = page.locator("ul.area-list li")
     count = zones.count()
 
@@ -119,11 +95,9 @@ def check_page(page, target: dict) -> list[dict]:
         if not line:
             continue
 
-        # 排除售完
         if any(word in line for word in ["已售完", "Sold out", "sold out", "SOLD OUT", "完售"]):
             continue
 
-        # 抓「剩餘 X」或「剩餘 X 張」
         m = re.search(r"(.+?)\s*剩餘\s*(\d+)(?:\s*張)?", line)
         if m:
             label = normalize_line(m.group(1))
@@ -137,7 +111,6 @@ def check_page(page, target: dict) -> list[dict]:
                 })
             continue
 
-        # 抓「熱賣中」
         if "熱賣中" in line:
             label = normalize_line(line.replace("熱賣中", ""))
 
@@ -149,8 +122,7 @@ def check_page(page, target: dict) -> list[dict]:
                 })
             continue
 
-        # 一般可買
-        if "區" in line:
+        if "區" in line and any(ch.isdigit() for ch in line):
             if keyword_match(line):
                 items.append({
                     "label": line,
@@ -162,10 +134,6 @@ def check_page(page, target: dict) -> list[dict]:
     print("抓到的結果：", items)
     return items
 
-
-# =========================
-# 5. 整理 Discord 訊息排版
-# =========================
 
 def format_ticket_message(target: dict, ticket_info: list[dict]) -> str:
     now_time = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
@@ -196,17 +164,11 @@ def format_ticket_message(target: dict, ticket_info: list[dict]) -> str:
     return "\n".join(lines)
 
 
-# =========================
-# 6. 主程式
-# =========================
-
 def main():
     print("🚀 bot started")
-    global notified
 
     for target in TARGETS:
         notified[target["url"]] = False
-        
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -220,25 +182,23 @@ def main():
                         url = target["url"]
                         current_ticket_info = check_page(page, target)
 
-                        # 有票，且尚未通知過 -> 發一次
                         if current_ticket_info and not notified[url]:
                             msg = format_ticket_message(target, current_ticket_info)
                             send_discord(msg, mention_everyone=MENTION_EVERYONE)
                             notified[url] = True
                             print(f"[已通知] {target['title']} / {target['date_text']}")
 
-                        # 沒票 -> 重置通知狀態
                         elif not current_ticket_info:
                             if notified[url]:
                                 print(f"[已重置] {target['title']} / {target['date_text']} 目前沒票，等待下次重新通知")
                             notified[url] = False
 
-                        # 還有票但已通知過 -> 不重複發
                         else:
                             print(f"[略過] {target['title']} / {target['date_text']} 仍然有票，但已通知過")
 
-                    print(f"等待 {CHECK_INTERVAL} 秒後再次檢查...\n")
-                    time.sleep(random.uniform(2, 4))
+                    sleep_seconds = random.uniform(MIN_INTERVAL, MAX_INTERVAL)
+                    print(f"等待 {sleep_seconds:.2f} 秒後再次檢查...\n")
+                    time.sleep(sleep_seconds)
 
                 except Exception as e:
                     print("發生錯誤：", e)
