@@ -1,32 +1,37 @@
+import os
 import re
 import time
+from datetime import datetime
+
 import requests
 from playwright.sync_api import sync_playwright
+
 
 # =========================
 # 1. 基本設定
 # =========================
 
-WEBHOOK_URL = "https://discordapp.com/api/webhooks/1490567305539752079/KIjpZbbSWZpmawcE-qvPUUPG_Gg5Zp9YxiIrgfxlFBaSeHaC0gQq5p7m7isc01SOk27C"
+WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 
 CHECK_INTERVAL = 10  # 每幾秒檢查一次
+MENTION_EVERYONE = True  # 有票時是否 @everyone
 
 TARGETS = [
     {
         "title": "IVE WORLD TOUR <SHOW WHAT I AM> IN TAIPEI",
         "date_text": "2026/09/11（五）19:00",
         "venue": "台北小巨蛋",
-        "url": "https://tixcraft.com/ticket/area/26_ive/22286"
+        "url": "https://tixcraft.com/ticket/area/26_ive/22286",
     },
     {
         "title": "IVE WORLD TOUR <SHOW WHAT I AM> IN TAIPEI",
         "date_text": "2026/09/12（六）18:00",
         "venue": "台北小巨蛋",
-        "url": "https://tixcraft.com/ticket/area/26_ive/22287"
-    }
+        "url": "https://tixcraft.com/ticket/area/26_ive/22287",
+    },
 ]
 
-# 如果只想看特定票價 / 關鍵字，就填這裡
+# 若只想看特定票價 / 關鍵字，可填：
 # 例如：["VIP", "7800", "5800"]
 # 全部都看就留空 []
 KEYWORDS = []
@@ -39,11 +44,22 @@ notified = {}
 # 2. Discord 發送
 # =========================
 
-def send_discord(message: str):
+def send_discord(message: str, mention_everyone: bool = False):
     try:
+        content = message
+        if mention_everyone:
+            content = "@everyone\n" + message
+
+        payload = {
+            "content": content,
+            "allowed_mentions": {
+                "parse": ["everyone"]
+            }
+        }
+
         response = requests.post(
             WEBHOOK_URL,
-            json={"content": message},
+            json=payload,
             timeout=10
         )
         print("Discord 狀態碼：", response.status_code)
@@ -56,19 +72,16 @@ def send_discord(message: str):
 # =========================
 
 def normalize_line(line: str) -> str:
-    """把多餘空白壓成單一空格"""
     return re.sub(r"\s+", " ", line).strip()
 
 
 def keyword_match(text: str) -> bool:
-    """若有設定 KEYWORDS，則只保留符合關鍵字的內容"""
     if not KEYWORDS:
         return True
     return any(keyword in text for keyword in KEYWORDS)
 
 
 def dedupe_items(items: list[dict]) -> list[dict]:
-    """去重複，保留原順序"""
     seen = set()
     result = []
 
@@ -153,25 +166,30 @@ def check_page(page, target: dict) -> list[dict]:
 # =========================
 
 def format_ticket_message(target: dict, ticket_info: list[dict]) -> str:
+    now_time = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+
     lines = [
-        f"🎫 {target['title']}",
-        target["date_text"],
-        target["venue"],
+        f"活動：{target['date_text']} < {target['venue']} >",
+        target["title"],
+        "",
         target["url"],
-        ""
     ]
 
-    if not ticket_info:
+    if ticket_info:
+        lines.append("")
+        for item in ticket_info:
+            if item["status"] == "count":
+                lines.append(f"• {item['label']} | 剩 {item['count']} 張")
+            elif item["status"] == "hot":
+                lines.append(f"• {item['label']} | 熱賣中")
+            else:
+                lines.append(f"• {item['label']} | 可購買")
+    else:
+        lines.append("")
         lines.append("❌ 目前無可選票區")
-        return "\n".join(lines)
 
-    for item in ticket_info:
-        if item["status"] == "count":
-            lines.append(f"✅ {item['label']} 剩餘 {item['count']} 張")
-        elif item["status"] == "hot":
-            lines.append(f"✅ {item['label']} 熱賣中")
-        else:
-            lines.append(f"✅ {item['label']} 可購買")
+    lines.append("")
+    lines.append(f"查詢時間：{now_time}")
 
     return "\n".join(lines)
 
@@ -201,7 +219,7 @@ def main():
                         # 有票，且尚未通知過 -> 發一次
                         if current_ticket_info and not notified[url]:
                             msg = format_ticket_message(target, current_ticket_info)
-                            send_discord(msg)
+                            send_discord(msg, mention_everyone=MENTION_EVERYONE)
                             notified[url] = True
                             print(f"[已通知] {target['title']} / {target['date_text']}")
 
@@ -232,5 +250,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
