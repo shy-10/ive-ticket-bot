@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "ive_bot.py"]
+CMD ["python", "-u", "ive_bot.py"]

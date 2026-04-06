@@ -200,6 +200,7 @@ def format_ticket_message(target: dict, ticket_info: list[dict]) -> str:
 # =========================
 
 def main():
+    print("🚀 bot started")
     global notified
 
     for target in TARGETS:
